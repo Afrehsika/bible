@@ -63,7 +63,10 @@ def list_translations():
     try:
         for p in DATA_FOLDER.glob("*.json"):
             if p.stem not in ("bible_bookmarks", "bible_settings", "sample_bible"):
-                translations[p.stem] = p
+                name = p.stem
+                if name.endswith("_bible"):
+                    name = name[:-6]
+                translations[name] = p
             elif p.stem == "sample_bible":
                 translations[p.stem] = p
     except Exception:
@@ -73,7 +76,10 @@ def list_translations():
         for sub in DATA_FOLDER.iterdir():
             if sub.is_dir():
                 for p in sub.glob("*_bible.json"):
-                    translations[p.stem] = p
+                    name = p.stem
+                    if name.endswith("_bible"):
+                        name = name[:-6]
+                    translations[name] = p
     except Exception:
         pass
     return translations
@@ -106,6 +112,19 @@ NT_ORDER = [
     'Matthew','Mark','Luke','John','Acts','Romans','1 Corinthians','2 Corinthians','Galatians','Ephesians',
     'Philippians','Colossians','1 Thessalonians','2 Thessalonians','1 Timothy','2 Timothy','Titus','Philemon','Hebrews',
     'James','1 Peter','2 Peter','1 John','2 John','3 John','Jude','Revelation'
+]
+
+TWI_OT_ORDER = [
+    'Genesis','Exodus','Lewifo','Numeri','Deuteronomium','Yosua','Atemmufo','Rut',
+    '1 Samuel','2 Samuel','1 Ahene','2 Ahene','1 Beresosɛm','2 Beresosɛm','Esra','Nehemia','Ester',
+    'Hiob','Nnwom','Mmbeusɛm','Ɔsɛnkafo','Nnwom Mu Dwom','Yesaia','Yeremia','Kwadwom',
+    'Hesekiel','Daniel','Hosea','Yoel','Amos','Obadia','Yona','Mika','Nahum','Habakuk','Sefania','Hagai','Sakaria','Malaki'
+]
+
+TWI_NT_ORDER = [
+    'Mateo','Marko','Luka','Yohane','Asomafo','Romafo','1 Korintofo','2 Korintofo','Galatifo','Efesofo',
+    'Filipifo','Kolosefo','1 Tesalonikafo','2 Tesalonikafo','1 Timoteo','2 Timoteo','Tito','Filemon','Hebrifo',
+    'Yakobo','1 Petro','2 Petro','1 Yohane','2 Yohane','3 Yohane','Yuda','Adiyisɛm'
 ]
 
 # ===============================
@@ -361,14 +380,22 @@ class BibleApp:
             return
 
         books = list(self.data.keys())
-        ot_books = [b for b in OT_ORDER if b in books]
-        nt_books = [b for b in NT_ORDER if b in books]
+        
+        # Determine which order lists to use
+        current_trans = getattr(self, "selected_translation", "")
+        is_twi = (current_trans == "TWI")
+        
+        target_ot = TWI_OT_ORDER if is_twi else OT_ORDER
+        target_nt = TWI_NT_ORDER if is_twi else NT_ORDER
+        
+        ot_books = [b for b in target_ot if b in books]
+        nt_books = [b for b in target_nt if b in books]
 
         grouped = []
         if ot_books:
-            grouped.append(("Old Testament", ot_books))
+            grouped.append(("Old Testament" if not is_twi else "Apam Dedaw", ot_books))
         if nt_books:
-            grouped.append(("New Testament", nt_books))
+            grouped.append(("New Testament" if not is_twi else "Apam Foforo", nt_books))
 
         # search box for books
         if not hasattr(self, "book_search") or self.book_search is None:
