@@ -36,7 +36,7 @@ file_to_key_mapping = {
     "Yeremia": "Yeremia",
     "Kwadwom": "Kwadwom",
     "Hesekiel": "Hesekiel",
-    # Daniel is missing in files
+    "Daniel": "Daniel",
     "Hosea": "Hosea",
     "Yoɛl": "Yoel",
     "Amos": "Amos",
