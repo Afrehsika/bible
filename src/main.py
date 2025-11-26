@@ -234,7 +234,7 @@ class BibleApp:
         # page setup
         page.title = "Bible"
         page.padding = 0
-        page.scroll = "adaptive"
+        page.scroll = None
         self.apply_theme_to_page()
 
         # placeholders
@@ -289,7 +289,7 @@ class BibleApp:
         )
 
         self.page.controls.clear()
-        self.page.add(ft.SafeArea(content=self.layout, top=True, bottom=True, left=True, right=True))
+        self.page.add(ft.SafeArea(content=self.layout, top=True, bottom=True, left=True, right=True, expand=True))
 
     def build_topbar(self):
         # translation dropdown
@@ -397,19 +397,14 @@ class BibleApp:
         if nt_books:
             grouped.append(("New Testament" if not is_twi else "Apam Foforo", nt_books))
 
-        # search box for books
-        if not hasattr(self, "book_search") or self.book_search is None:
-            self.book_search = ft.TextField(width=300, hint_text="Search books...", on_change=self.on_search_books)
 
-        query = (self.book_search.value or "").strip().lower()
-        def book_matches(bname):
-            if not query:
-                return True
-            return query in bname.lower()
+
+
 
         sections = []
         for heading, blist in grouped:
-            filtered = [b for b in blist if book_matches(b)]
+            # filtered = [b for b in blist if book_matches(b)]
+            filtered = blist
             if not filtered:
                 continue
             tiles = []
@@ -417,11 +412,11 @@ class BibleApp:
                 chap_count = len(self.data.get(b, {}))
                 tile = ft.Container(
                     ft.Column([
-                        ft.Text(b, size=16, weight=ft.FontWeight.NORMAL, color=self._theme_text),
+                        ft.Text(b, size=16, weight=ft.FontWeight.NORMAL, color=self._theme_text, text_align=ft.TextAlign.CENTER, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                         ft.Text(f"{chap_count} chapters", size=12, color=self._theme_muted),
                     ], tight=True, alignment=ft.CrossAxisAlignment.CENTER),
                     width=140,
-                    height=76,
+                    height=90,
                     padding=12,
                     margin=ft.margin.only(4,4,4,4),
                     bgcolor=self._theme_panel,
@@ -455,10 +450,7 @@ class BibleApp:
             for group in list(chunks(tiles, cols)):
                 content_cols.append(ft.Row(group, spacing=8, alignment=ft.MainAxisAlignment.CENTER))
 
-        if query and not content_cols:
-            content_cols = [ft.Container(ft.Text("No books found.", color=self._theme_muted), padding=12)]
-
-        body = ft.Column([ft.Row([self.book_search, ft.Container(expand=True)]), ft.Divider(height=1, color="#333" if self.selected_theme == "Dark" else "#ddd"), ft.Column(content_cols, spacing=8, expand=True)], spacing=8, expand=True)
+        body = ft.ListView(controls=content_cols, spacing=8, expand=True)
 
         self.current_view = "library"
         self.header = self.build_topbar()
@@ -466,12 +458,7 @@ class BibleApp:
         self.content_area.content = body
         self.page.update()
 
-    def on_search_books(self, e):
-        try:
-            self.book_search.value = (e.control.value or "")
-        except Exception:
-            pass
-        self.show_library_page()
+
 
     # ===============================
     # Chapters & verses navigation
@@ -514,7 +501,7 @@ class BibleApp:
                 yield lst[i:i+n]
         for group in chunks(tiles, cols):
             rows.append(ft.Row(group, spacing=8, alignment=ft.MainAxisAlignment.CENTER))
-        body = ft.Column([title, ft.Divider(), ft.Column(rows, expand=True)], spacing=8, expand=True)
+        body = ft.Column([title, ft.Divider(), ft.ListView(controls=rows, expand=True, spacing=8)], spacing=8, expand=True)
         self.header = self.build_topbar()
         self.layout.controls[0] = self.header
         self.content_area.content = body
@@ -638,7 +625,7 @@ class BibleApp:
             self.content_area.content = ft.Text("No bookmarks yet.", size=14, italic=True, color=self._theme_muted)
             self.page.update()
             return
-        items = ft.Column([ft.Container(ft.Row([ft.Text(f"{b['book']} {b['chapter']}:{b['verse']}", size=16, color=self._theme_text), ft.Container(expand=True), ft.IconButton(ft.Icons.OPEN_IN_NEW, on_click=lambda e, b=b: self.open_verses(b['book'], b['chapter']))]), bgcolor=self._theme_panel, padding=8, border_radius=6) for b in self.bookmarks], spacing=8)
+        items = ft.ListView([ft.Container(ft.Row([ft.Text(f"{b['book']} {b['chapter']}:{b['verse']}", size=16, color=self._theme_text), ft.Container(expand=True), ft.IconButton(ft.Icons.OPEN_IN_NEW, on_click=lambda e, b=b: self.open_verses(b['book'], b['chapter']))]), bgcolor=self._theme_panel, padding=8, border_radius=6) for b in self.bookmarks], spacing=8, expand=True)
         self.content_area.content = items
         self.page.update()
 
@@ -652,7 +639,7 @@ class BibleApp:
             ft.Row([ft.Text("Font Size:", color=self._theme_text), ft.IconButton(ft.Icons.REMOVE, on_click=lambda e: self.adjust_font(-1)), ft.Text(str(self.font_size), color=self._theme_text), ft.IconButton(ft.Icons.ADD, on_click=lambda e: self.adjust_font(1))]),
             ft.Row([ft.Text("Theme:", color=self._theme_text), self.theme_select]),
             ft.Row([ft.Text("Translation:", color=self._theme_text), ft.Text(self.selected_translation or "None", color=self._theme_muted)]),
-        ], spacing=16)
+        ], spacing=16, scroll="auto", expand=True)
         self.content_area.content = body
         self.page.update()
 

@@ -59,7 +59,7 @@ file_to_key_mapping = {
     "2 Korintofo": "2 Korintofo",
     "Galatifo": "Galatifo",
     "Efesofo": "Efesofo",
-    # Filipifo is missing in files
+    "Filipifo": "Filipifo",
     "Kolosefo": "Kolosefo",
     "1 Tesalonikafo": "1 Tesalonikafo",
     "2 Tesalonikafo": "2 Tesalonikafo",
