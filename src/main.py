@@ -3,6 +3,12 @@ import json
 from pathlib import Path
 import sys
 import os
+try:
+    from tts_service import TTSEngine
+    HAS_TTS = True
+except ImportError:
+    HAS_TTS = False
+
 
 # ===============================
 # File paths - works both on desktop and in APK
@@ -31,6 +37,15 @@ DATA_FOLDER = resolve_data_folder()
 DEFAULT_DATA_FILE = DATA_FOLDER / "sample_bible.json"
 BOOKMARKS_FILE = DATA_FOLDER / "bible_bookmarks.json"
 SETTINGS_FILE = DATA_FOLDER / "bible_settings.json"
+
+# Audio assets (for mobile compatibility)
+# This assumes src/main.py -> parent is src -> parent is project root.
+# We want project_root/src/assets/audio_cache to be served.
+# Flet usually serves 'assets' folder adjacent to main.py or defined in app.
+# We will assume 'src/assets' is the dir.
+ASSETS_DIR = Path(__file__).parent / "assets"
+AUDIO_ASSETS_DIR = ASSETS_DIR / "audio_cache"
+
 
 # ===============================
 # Helpers
@@ -210,6 +225,29 @@ class BibleApp:
         self.page = page
         self.translations = list_translations()
         self.settings = load_json(SETTINGS_FILE)
+        
+        # TTS Engine
+        self.tts = TTSEngine() if HAS_TTS else None
+        
+        # Preload models in background
+        if self.tts:
+            import threading
+            def _preload():
+                print("Preloading TTS models...")
+                self.tts.preload("aka") # Twi
+                self.tts.preload("eng")
+                print("TTS models preloaded.")
+            threading.Thread(target=_preload, daemon=True).start()
+
+        # Defers audio player creation until play
+        self.audio_player = None
+        self.audio_playlist = []
+        self.audio_current_idx = 0
+        self.is_generating_audio = False
+        self.is_playing = False
+
+
+
 
         # bookmarks
         bm_data = load_json(BOOKMARKS_FILE)
@@ -282,6 +320,21 @@ class BibleApp:
             return True # Prevent exit on error
 
 
+
+            print(f"Error in back button: {ex}")
+            return True # Prevent exit on error
+
+    def update_fab(self):
+        if hasattr(self, "current_view") and self.current_view != "library":
+            self.page.floating_action_button = ft.FloatingActionButton(
+                icon=ft.Icons.ARROW_BACK,
+                on_click=lambda e: self.back(),
+                bgcolor=self._theme_accent,
+                content=ft.Icon(ft.Icons.ARROW_BACK, color=self._theme_panel) # Contrast
+            )
+        else:
+            self.page.floating_action_button = None
+        self.page.update()
 
     # ===============================
     # Theme helpers
@@ -399,6 +452,7 @@ class BibleApp:
                 self.open_search()
             else:
                 self.show_library_page()
+        self.update_fab()
 
     # ===============================
     # Library (books) - NO "Other" section
@@ -542,6 +596,13 @@ class BibleApp:
             self.current_view = "library"
         self.show_current_view()
 
+    def open_verses(self, book, chapter):
+        """Helper to jump directly to a chapter's verses."""
+        self.current_book = book
+        self.current_chapter = chapter
+        self.current_view = "read"
+        self.show_current_view()
+
     # ===============================
     # Read page (verses)
     # ===============================
@@ -596,11 +657,20 @@ class BibleApp:
             )
         ]
 
+
+
+        if HAS_TTS:
+            icon = ft.Icons.PAUSE if self.is_playing else ft.Icons.PLAY_ARROW
+            nav_controls.append(
+                ft.IconButton(icon, tooltip="Play/Pause Audio", icon_size=24, on_click=lambda e: self.toggle_chapter_audio())
+            )
+
         header_title = ft.Container(
             ft.Row(nav_controls, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, spacing=0),
             padding=ft.padding.symmetric(vertical=4, horizontal=0),
             bgcolor=self._theme_panel,
         )
+
 
         verse_list = ft.ListView(spacing=6, expand=True)
         for vnum, text in items[start_idx:]:
@@ -634,6 +704,11 @@ class BibleApp:
 
         self.content_area.content = ft.Column([header_title, ft.Divider(height=1, thickness=1, color=self._theme_muted), swipe_detector], spacing=0, expand=True)
         self.page.update()
+
+        # Optimistic generation: Start generating the first chunk in background
+        if HAS_TTS and self.tts:
+            self._optimistic_generate_first_chunk()
+
 
     def on_goto_verse(self, e):
         try:
@@ -952,6 +1027,7 @@ class BibleApp:
         self.header = self.build_topbar()
         self.layout.controls[0] = self.header
         self.content_area.content = body
+        self.update_fab()
         self.page.update()
 
     def run_search(self, e):
@@ -1043,7 +1119,243 @@ class BibleApp:
     # ===============================
     # Misc
     # ===============================
+    def toggle_chapter_audio(self):
+        if not self.tts:
+            self.page.snack_bar = ft.SnackBar(ft.Text("TTS not available."))
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        # If we have a player, toggle it
+        if self.audio_player:
+            if self.is_playing:
+                print("DEBUG: Pausing...")
+                self.audio_player.pause()
+                self.is_playing = False
+                self.page.snack_bar = ft.SnackBar(ft.Text("Paused"))
+            else:
+                print("DEBUG: Resuming...")
+                self.audio_player.resume()
+                self.is_playing = True
+                self.page.snack_bar = ft.SnackBar(ft.Text("Resumed"))
+            self.page.snack_bar.open = True
+            self.page.update()
+            # Update icon
+            self.show_read_page() 
+            return
+
+        # Otherwise start fresh
+        self.start_chapter_audio()
+
+    def start_chapter_audio(self):
+        if not self.tts:
+            self.page.snack_bar = ft.SnackBar(ft.Text("TTS not available (missing libraries?)"))
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+        
+        self.is_playing = True
+        self.show_read_page() # update icon
+
+        # Stop any existing playback (cleanup)
+        if self.audio_player:
+            try:
+                self.audio_player.pause()
+                self.page.overlay.remove(self.audio_player)
+                self.audio_player = None
+            except Exception:
+                pass
+
+        book = self.current_book
+        chapter = self.current_chapter
+        lang = "aka" if self.selected_translation == "TWI" else "eng"
+        
+        # Get text
+        verses = self.data.get(book, {}).get(chapter, {})
+        if not verses:
+            return
+            
+        # Sort verses
+        sorted_verses = sorted(verses.items(), key=lambda x: int(x[0]) if str(x[0]).isdigit() else x[0])
+        
+        # Prepare chunks (e.g., 5 verses per chunk)
+        chunk_size = 5
+        chunks = []
+        current_chunk = []
+        
+        for i, (vnum, text) in enumerate(sorted_verses):
+            current_chunk.append(text)
+            if len(current_chunk) >= chunk_size:
+                chunks.append(" ".join(current_chunk))
+                current_chunk = []
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+
+        if not chunks:
+            return
+
+        # Reset state
+        self.audio_playlist = [None] * len(chunks) # Placeholders
+        self.audio_current_idx = 0
+        self.is_generating_audio = True
+        
+        self.page.snack_bar = ft.SnackBar(ft.Text(f"Starting audio for {book} {chapter} ({lang})..."))
+        self.page.snack_bar.open = True
+        self.page.update()
+
+        # Define Audio Player with on_state_changed
+        def on_audio_state_changed(e):
+            if e.data == "completed":
+                self.play_next_chunk()
+
+        self.audio_player = ft.Audio(
+            src="", 
+            autoplay=False,
+            on_state_changed=on_audio_state_changed
+        )
+        self.page.overlay.append(self.audio_player)
+        self.page.update()
+
+        # Background Playback Manager
+        import threading
+        
+        def generator_thread():
+            try:
+                AUDIO_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+                
+            for i, text_chunk in enumerate(chunks):
+                # If user navigated away or stopped (basic check)
+                if not self.is_generating_audio:
+                    return
+
+                filename = f"{book}_{chapter}_{lang}_chunk_{i}.wav".replace(" ", "_")
+                filepath = AUDIO_ASSETS_DIR / filename
+                
+                if not filepath.exists():
+                    # Generate
+                    print(f"Generating chunk {i}...")
+                    try:
+                        success = self.tts.generate_audio(text_chunk, lang, str(filepath))
+                        if not success:
+                            continue
+                    except Exception as e:
+                        print(f"Gen Error: {e}")
+                        continue
+                else:
+                    print(f"Chunk {i} cached.")
+                
+                # Update playlist safely
+                if self.is_generating_audio: # Basic flag check
+                    # Use relative URL for Flet asset
+                    self.audio_playlist[i] = f"/audio_cache/{filename}"
+                    
+                    # If this is the *first* chunk, start playing immediately
+                    if i == 0:
+                        self.play_next_chunk()
+        
+        threading.Thread(target=generator_thread, daemon=True).start()
+
+    def play_next_chunk(self):
+        print(f"DEBUG: play_next_chunk called. Index: {self.audio_current_idx}")
+        # Find next available chunk to play
+        if self.audio_current_idx >= len(self.audio_playlist):
+            self.page.snack_bar = ft.SnackBar(ft.Text("Audio finished."))
+            self.page.snack_bar.open = True
+            self.is_playing = False # Reset state
+            self.show_read_page()   # Reset icon
+            self.page.update()
+            return
+
+        # Check if current chunk is ready
+        next_src = self.audio_playlist[self.audio_current_idx]
+        print(f"DEBUG: Next src: {next_src}")
+        
+        if next_src:
+            # Play it
+            print(f"DEBUG: Playing {next_src}")
+            self.is_playing = True # Ensure state
+            self.audio_player.src = next_src
+            self.audio_player.autoplay = True
+            self.audio_player.update()
+            self.audio_current_idx += 1
+        else:
+            # Not ready yet? Wait a bit and retry? 
+            print("DEBUG: Chunk not ready, buffering...")
+            # Simple polling fallback
+            self.page.snack_bar = ft.SnackBar(ft.Text("Buffering..."))
+            self.page.snack_bar.open = True
+            self.page.update()
+            
+            def retry_later():
+                import time
+                for _ in range(10): # Wait up to 5 seconds
+                    time.sleep(0.5)
+                    if self.audio_current_idx < len(self.audio_playlist) and self.audio_playlist[self.audio_current_idx]:
+                        print("DEBUG: Retry found content, playing...")
+                        self.play_next_chunk()
+                        return
+                print("DEBUG: Retry timed out.")
+                
+            import threading
+            threading.Thread(target=retry_later, daemon=True).start()
+
+    def _optimistic_generate_first_chunk(self):
+        """Generates the first audio chunk for the current chapter in background."""
+        if not self.current_book or not self.current_chapter:
+            return
+            
+        book = self.current_book
+        chapter = self.current_chapter
+        lang = "aka" if self.selected_translation == "TWI" else "eng"
+        
+        # 1. Get first chunk text (same logic as play_chapter_audio)
+        verses = self.data.get(book, {}).get(chapter, {})
+        if not verses:
+            return
+        
+        # Sort
+        sorted_verses = sorted(verses.items(), key=lambda x: int(x[0]) if str(x[0]).isdigit() else x[0])
+        
+        chunk_size = 5
+        first_chunk_text = ""
+        current_chunk = []
+        for i, (vnum, text) in enumerate(sorted_verses):
+            current_chunk.append(text)
+            if len(current_chunk) >= chunk_size:
+                first_chunk_text = " ".join(current_chunk)
+                break # Only need the first one
+        
+        if not first_chunk_text and current_chunk:
+             first_chunk_text = " ".join(current_chunk)
+             
+        if not first_chunk_text:
+            return
+
+        # 2. Check if file exists
+        filename = f"{book}_{chapter}_{lang}_chunk_0.wav".replace(" ", "_")
+        filepath = AUDIO_ASSETS_DIR / filename
+        
+        if filepath.exists():
+            return # Already ready
+
+        # 3. Generate in thread
+        import threading
+        def _gen():
+            try:
+                # Ensure directory
+                AUDIO_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+                # Generate
+                if not filepath.exists():
+                     self.tts.generate_audio(first_chunk_text, lang, str(filepath))
+            except Exception as e:
+                print(f"Optimistic gen failed: {e}")
+        
+        threading.Thread(target=_gen, daemon=True).start()
+
     def on_page_resize(self, e):
+
         try:
             if getattr(self, "current_view", "library") == "library":
                 self.show_library_page()
@@ -1062,4 +1374,7 @@ def main(page: ft.Page):
     pass
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    # Ensure assets dir exists
+    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    ft.app(target=main, assets_dir="assets")
+
