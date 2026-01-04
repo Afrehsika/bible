@@ -573,19 +573,34 @@ class BibleApp:
                         start_idx = i
                         break
 
+        # Navigation Header
+        # Books button (Library), Prev Chapter, Title, Next Chapter
+        nav_controls = [
+            ft.IconButton(ft.Icons.MENU_BOOK, tooltip="Library", icon_size=20, on_click=lambda e: self.show_library_page()),
+            ft.VerticalDivider(width=1, color=self._theme_muted),
+            ft.IconButton(ft.Icons.CHEVRON_LEFT, tooltip="Previous Chapter", icon_size=24, on_click=lambda e: self.go_to_previous_chapter()),
+            ft.Container(
+                ft.Text(f"{self.current_book} {self.current_chapter}", size=16, weight=ft.FontWeight.BOLD, color=self._theme_text, text_align=ft.TextAlign.CENTER),
+                expand=True, alignment=ft.alignment.center
+            ),
+            ft.IconButton(ft.Icons.CHEVRON_RIGHT, tooltip="Next Chapter", icon_size=24, on_click=lambda e: self.go_to_next_chapter()),
+            ft.VerticalDivider(width=1, color=self._theme_muted),
+            ft.Container(
+                 ft.TextField(width=70, hint_text="Vs", content_padding=5, text_size=12, on_submit=self.on_goto_verse, value=(str(start_v) if start_v else ""), border_radius=4, text_align=ft.TextAlign.CENTER),
+                 padding=ft.padding.only(left=5)
+            )
+        ]
+
         header_title = ft.Container(
-            ft.Row([
-                ft.Text(f"{self.current_book} {self.current_chapter}", size=18, weight=ft.FontWeight.BOLD, color=self._theme_text),
-                ft.Container(expand=True),
-                ft.TextField(width=80, hint_text="verse", on_submit=self.on_goto_verse, value=(str(start_v) if start_v else "")),
-            ], alignment=ft.MainAxisAlignment.START),
-            alignment=ft.alignment.center,
-            padding=8,
+            ft.Row(nav_controls, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, spacing=0),
+            padding=ft.padding.symmetric(vertical=4, horizontal=0),
+            bgcolor=self._theme_panel,
         )
 
         verse_list = ft.ListView(spacing=6, expand=True)
         for vnum, text in items[start_idx:]:
             verse_bg = self._theme_panel
+            # Use a slightly different bg for textfield to distinguish? No, keep it clean.
             textfield = ft.TextField(value=str(text), read_only=True, multiline=True, expand=True, text_style=ft.TextStyle(size=self.font_size), bgcolor=verse_bg, border_color=verse_bg)
             def make_copy_handler(book, chapter, vn, t):
                 def _copy(e):
@@ -599,13 +614,20 @@ class BibleApp:
                         pass
                 return _copy
             verse_row = ft.Row([
-                ft.Container(ft.Text(str(vnum), size=self.font_size, color=self._theme_text), width=48, alignment=ft.alignment.center_left),
+                ft.Container(ft.Text(str(vnum), size=self.font_size, color=self._theme_text, weight=ft.FontWeight.BOLD), width=40, alignment=ft.alignment.top_right, padding=ft.padding.only(top=10, right=5)),
                 textfield,
-                ft.IconButton(ft.Icons.CONTENT_COPY, on_click=make_copy_handler(self.current_book, self.current_chapter, vnum, text))
-            ], alignment=ft.MainAxisAlignment.START)
-            verse_list.controls.append(ft.Container(verse_row, bgcolor=verse_bg, border_radius=8, padding=10, on_click=lambda e, b=self.current_book, c=self.current_chapter, v=vnum: self.add_bookmark(b,c,v)))
+                ft.IconButton(ft.Icons.CONTENT_COPY, icon_size=16, on_click=make_copy_handler(self.current_book, self.current_chapter, vnum, text))
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.START)
+            verse_list.controls.append(ft.Container(verse_row, bgcolor=verse_bg, border_radius=8, padding=5, on_click=lambda e, b=self.current_book, c=self.current_chapter, v=vnum: self.add_bookmark(b,c,v)))
 
-        self.content_area.content = ft.Column([header_title, ft.Divider(), verse_list], spacing=8, expand=True)
+        # Swipe Detector
+        swipe_detector = ft.GestureDetector(
+            content=verse_list,
+            on_horizontal_drag_end=self.on_swipe,
+            expand=True
+        )
+
+        self.content_area.content = ft.Column([header_title, ft.Divider(height=1, thickness=1, color=self._theme_muted), swipe_detector], spacing=0, expand=True)
         self.page.update()
 
     def on_goto_verse(self, e):
@@ -616,6 +638,122 @@ class BibleApp:
                 self.show_read_page()
         except Exception:
             pass
+
+    # ===============================
+    # Navigation Logic
+    # ===============================
+    def on_swipe(self, e: ft.DragEndEvent):
+        # Threshold for swipe velocity
+        if e.primary_velocity is None:
+            return
+        if e.primary_velocity > 400: # Swipe Right -> Previous
+             self.go_to_previous_chapter()
+        elif e.primary_velocity < -400: # Swipe Left -> Next
+             self.go_to_next_chapter()
+
+    def get_ordered_books(self):
+        books = list(self.data.keys())
+        current_trans = getattr(self, "selected_translation", "")
+        is_twi = (current_trans == "TWI")
+        target_ot = TWI_OT_ORDER if is_twi else OT_ORDER
+        target_nt = TWI_NT_ORDER if is_twi else NT_ORDER
+        
+        ordered = []
+        # Filter and order
+        for b in target_ot:
+            if b in books: ordered.append(b)
+        for b in target_nt:
+            if b in books: ordered.append(b)
+            
+        # Append any unknown books
+        known_set = set(ordered)
+        for b in books:
+            if b not in known_set:
+                ordered.append(b)
+        return ordered
+
+    def go_to_next_chapter(self):
+        if not self.current_book or not self.current_chapter:
+            return
+        
+        chapters = list(self.data.get(self.current_book, {}).keys())
+        try:
+             chapters = sorted(chapters, key=lambda x: int(x) if str(x).isdigit() else x)
+        except:
+             pass
+        
+        try:
+            curr_idx = chapters.index(str(self.current_chapter))
+        except ValueError:
+            curr_idx = -1
+        
+        # Check if next chapter exists in current book
+        if curr_idx != -1 and curr_idx < len(chapters) - 1:
+            self.current_chapter = chapters[curr_idx + 1]
+            self.show_read_page()
+            return
+
+        # Go to next book
+        all_books = self.get_ordered_books()
+        try:
+            b_idx = all_books.index(self.current_book)
+        except ValueError:
+            return
+
+        if b_idx < len(all_books) - 1:
+            next_book = all_books[b_idx + 1]
+            nb_chapters = list(self.data.get(next_book, {}).keys())
+            try:
+                nb_chapters = sorted(nb_chapters, key=lambda x: int(x) if str(x).isdigit() else x)
+            except:
+                pass
+            if nb_chapters:
+                self.current_book = next_book
+                self.current_chapter = nb_chapters[0]
+                self.show_read_page()
+            else:
+                 # Empty book? Skip
+                 pass
+
+    def go_to_previous_chapter(self):
+        if not self.current_book or not self.current_chapter:
+            return
+        
+        chapters = list(self.data.get(self.current_book, {}).keys())
+        try:
+             chapters = sorted(chapters, key=lambda x: int(x) if str(x).isdigit() else x)
+        except:
+             pass
+        
+        try:
+            curr_idx = chapters.index(str(self.current_chapter))
+        except ValueError:
+            curr_idx = -1
+        
+        # Check if prev chapter exists in current book
+        if curr_idx > 0:
+            self.current_chapter = chapters[curr_idx - 1]
+            self.show_read_page()
+            return
+
+        # Go to previous book (last chapter)
+        all_books = self.get_ordered_books()
+        try:
+            b_idx = all_books.index(self.current_book)
+        except ValueError:
+            return
+            
+        if b_idx > 0:
+            prev_book = all_books[b_idx - 1]
+            pb_chapters = list(self.data.get(prev_book, {}).keys())
+            try:
+                pb_chapters = sorted(pb_chapters, key=lambda x: int(x) if str(x).isdigit() else x)
+            except:
+                pass
+            if pb_chapters:
+                self.current_book = prev_book
+                self.current_chapter = pb_chapters[-1] # Last chapter
+                self.show_read_page()
 
     # ===============================
     # Bookmarks & Settings
