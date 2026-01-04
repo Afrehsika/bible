@@ -128,6 +128,15 @@ TWI_NT_ORDER = [
 ]
 
 # ===============================
+# Book Mapping (English <-> Twi)
+# ===============================
+ENGLISH_TO_TWI = dict(zip(OT_ORDER, TWI_OT_ORDER))
+ENGLISH_TO_TWI.update(dict(zip(NT_ORDER, TWI_NT_ORDER)))
+# Invert for Twi -> English
+TWI_TO_ENGLISH = {v: k for k, v in ENGLISH_TO_TWI.items()}
+
+
+# ===============================
 # Themes
 # ===============================
 THEMES = {
@@ -398,9 +407,6 @@ class BibleApp:
             grouped.append(("New Testament" if not is_twi else "Apam Foforo", nt_books))
 
 
-
-
-
         sections = []
         for heading, blist in grouped:
             # filtered = [b for b in blist if book_matches(b)]
@@ -448,94 +454,72 @@ class BibleApp:
         for heading, tiles in sections:
             content_cols.append(ft.Container(ft.Text(heading, size=14, weight=ft.FontWeight.BOLD, color=self._theme_text), padding=6))
             for group in list(chunks(tiles, cols)):
-                content_cols.append(ft.Row(group, spacing=8, alignment=ft.MainAxisAlignment.CENTER))
+                content_cols.append(ft.Row(group, alignment=ft.MainAxisAlignment.START, spacing=0))
 
-        body = ft.ListView(controls=content_cols, spacing=8, expand=True)
-
-        self.current_view = "library"
+        if not content_cols:
+            self.content_area.content = ft.Text("No books found.", italic=True, color=self._theme_muted)
+        else:
+            self.content_area.content = ft.ListView(content_cols, expand=True, padding=10)
         self.header = self.build_topbar()
-        self.layout.controls[0] = self.header
-        self.content_area.content = body
         self.page.update()
 
-
-
-    # ===============================
-    # Chapters & verses navigation
-    # ===============================
     def open_chapters(self, book):
         self.current_book = book
-        chapters = list(self.data.get(book, {}).keys())
+        self.current_view = "chapters"
+        self.show_current_view()
+
+    def show_chapters_page(self):
+        if not self.current_book or self.current_book not in self.data:
+            self.show_library_page()
+            return
+
+        chapters = list(self.data[self.current_book].keys())
         try:
             chapters = sorted(chapters, key=lambda x: int(x) if str(x).isdigit() else x)
         except Exception:
             pass
-        self.chapters_current = chapters
-        self.current_view = "chapters"
-        self.show_chapters_page()
 
-    def show_chapters_page(self):
-        if not self.current_book:
-            self.show_library_page()
-            return
-        title = ft.Container(ft.Text(self.current_book, size=18, weight=ft.FontWeight.BOLD, color=self._theme_text), alignment=ft.alignment.center, padding=8)
         tiles = []
-        for c in self.chapters_current:
+        for c in chapters:
             tile = ft.Container(
-                ft.Column([ft.Text(f"Chapter {c}", size=16, color=self._theme_text)], alignment=ft.CrossAxisAlignment.CENTER),
-                width=120, height=64, padding=10, margin=ft.margin.only(4,4,4,4),
-                bgcolor=self._theme_panel, border_radius=8, border=ft.border.all(1, color=self._theme_muted),
-                alignment=ft.alignment.center, on_click=lambda e, ch=c: self.open_verses(self.current_book, ch)
+                ft.Text(c, size=16, weight=ft.FontWeight.BOLD, color=self._theme_text),
+                width=60,
+                height=60,
+                bgcolor=self._theme_panel,
+                border_radius=8,
+                border=ft.border.all(1, color=self._theme_muted),
+                alignment=ft.alignment.center,
+                on_click=lambda e, ch=c: self.open_read(ch),
             )
             tiles.append(tile)
-        try:
-            w = int(self.page.width or 0)
-        except Exception:
-            w = 0
-        tile_total_width = 140
-        cols = max(1, int(w / tile_total_width)) if w > 0 else 3
-        cols = min(cols, 6)
-        rows = []
-        def chunks(lst, n):
-            for i in range(0, len(lst), n):
-                yield lst[i:i+n]
-        for group in chunks(tiles, cols):
-            rows.append(ft.Row(group, spacing=8, alignment=ft.MainAxisAlignment.CENTER))
-        body = ft.Column([title, ft.Divider(), ft.ListView(controls=rows, expand=True, spacing=8)], spacing=8, expand=True)
+
+        grid = ft.GridView(
+            runs_count=5,
+            max_extent=70,
+            child_aspect_ratio=1.0,
+            spacing=10,
+            run_spacing=10,
+            controls=tiles,
+        )
+        
+        heading = ft.Text(f"{self.current_book}", size=20, weight=ft.FontWeight.BOLD, color=self._theme_text)
+        self.content_area.content = ft.Column([heading, ft.Divider(), ft.Container(grid, expand=True)], spacing=10)
         self.header = self.build_topbar()
-        self.layout.controls[0] = self.header
-        self.content_area.content = body
         self.page.update()
 
-    def open_verses(self, book, chapter):
-        self.current_book = book
+    def open_read(self, chapter):
         self.current_chapter = chapter
-        self.current_view = "verses"
-        self.header = self.build_topbar()
-        self.layout.controls[0] = self.header
-        self.show_read_page()
+        self.current_view = "read"
+        self.show_current_view()
 
     def back(self):
-        cv = getattr(self, "current_view", "library")
-        if cv == "search":
-            self.current_view = "library"
-            self.show_library_page()
-        elif cv == "verses":
+        if self.current_view in ("read", "verses"):
             self.current_view = "chapters"
-            self.show_chapters_page()
-        elif cv == "chapters":
+        elif self.current_view == "chapters":
             self.current_view = "library"
-            self.show_library_page()
         else:
-            # on library -> request close
-            try:
-                # Flet supports window_close in many versions
-                self.page.window_close()
-            except Exception:
-                try:
-                    self.page.close()
-                except Exception:
-                    pass
+            self.current_view = "library"
+        self.show_current_view()
 
     # ===============================
     # Read page (verses)
@@ -860,13 +844,27 @@ class BibleApp:
             books = list(self.data.keys())
             self.book_select.options = [ft.dropdown.Option(b) for b in books]
 
-            # restore old book/chapter when available
+            # restore old book/chapter when available, or map it
+            new_book_target = None
             if old_book in books:
-                self.current_book = old_book
-                self.book_select.value = old_book
+                new_book_target = old_book
+            else:
+                # Try English -> Twi
+                if old_book in ENGLISH_TO_TWI:
+                    mapped = ENGLISH_TO_TWI[old_book]
+                    if mapped in books:
+                        new_book_target = mapped
+                # Try Twi -> English
+                if not new_book_target and old_book in TWI_TO_ENGLISH:
+                    mapped = TWI_TO_ENGLISH[old_book]
+                    if mapped in books:
+                        new_book_target = mapped
+
+            if new_book_target:
+                self.current_book = new_book_target
             else:
                 self.current_book = books[0] if books else None
-                self.book_select.value = self.current_book
+            self.book_select.value = self.current_book
 
             if self.current_book and self.current_book in self.data:
                 chapters = list(self.data[self.current_book].keys())
