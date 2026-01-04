@@ -115,15 +115,15 @@ NT_ORDER = [
 ]
 
 TWI_OT_ORDER = [
-    'Genesis','Exodus','Lewifo','Numeri','Deuteronomium','Yosua','Atemmufo','Rut',
-    '1 Samuel','2 Samuel','1 Ahene','2 Ahene','1 Beresosɛm','2 Beresosɛm','Esra','Nehemia','Ester',
-    'Hiob','Nnwom','Mmbeusɛm','Ɔsɛnkafo','Nnwom Mu Dwom','Yesaia','Yeremia','Kwadwom',
+    'Gyenesis','Eksodɔs','Lewitikɔs','Numeri','Deuteronomium','Yosua','Atemmufoɔ','Rut',
+    '1 Samuel','2 Samuel','1 Ahemfo','2 Ahemfo','1 Berɛsosɛm','2 Berɛsosɛm','Esra','Nehemia','Ester',
+    'Hiob','Nnwom','Mmebusɛm','Ɔsɛnkafoɔ','Nnwom Mu Dwom','Yesaia','Yeremia','Kwadwom',
     'Hesekiel','Daniel','Hosea','Yoel','Amos','Obadia','Yona','Mika','Nahum','Habakuk','Sefania','Hagai','Sakaria','Malaki'
 ]
 
 TWI_NT_ORDER = [
-    'Mateo','Marko','Luka','Yohane','Asomafo','Romafo','1 Korintofo','2 Korintofo','Galatifo','Efesofo',
-    'Filipifo','Kolosefo','1 Tesalonikafo','2 Tesalonikafo','1 Timoteo','2 Timoteo','Tito','Filemon','Hebrifo',
+    'Mateo','Marko','Luka','Yohane','Asomafoɔ','Romafoɔ','1 Korintofoɔ','2 Korintofoɔ','Galatifoɔ','Efesofoɔ',
+    'Filipifoɔ','Kolosefoɔ','1 Tesalonikafoɔ','2 Tesalonikafoɔ','1 Timoteo','2 Timoteo','Tito','Filemon','Hebrifoɔ',
     'Yakobo','1 Petro','2 Petro','1 Yohane','2 Yohane','3 Yohane','Yuda','Adiyisɛm'
 ]
 
