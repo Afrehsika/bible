@@ -162,11 +162,11 @@ THEMES = {
         "muted": "#6b5a45",
     },
     "Gold": {  # Classic C
-        "page_bg": "#ffffff",
-        "panel_bg": "#f6f6f6",
-        "accent": "#d4af37",
-        "text": "#111111",
-        "muted": "#777777",
+        "page_bg": "#f5e6c4",
+        "panel_bg": "#ebd5a0",
+        "accent": "#a67c00",
+        "text": "#2b2b2b",
+        "muted": "#755d35",
     }
 }
 
@@ -261,6 +261,27 @@ class BibleApp:
         self.build_ui()
         self.current_view = "library"
         self.show_current_view()
+        
+        # Handle Android back button
+        self.page.on_back_button_pressed = self.on_back_button
+
+    def on_back_button(self, e):
+        try:
+            # Debug: show we caught the event
+            # self.page.snack_bar = ft.SnackBar(ft.Text(f"Back pressed. View: {self.current_view}"))
+            # self.page.snack_bar.open = True
+            # self.page.update()
+
+            if self.current_view != "library":
+                self.back()
+                return True
+            else:
+                return False # Let OS handle library (exit)
+        except Exception as ex:
+            print(f"Error in back button: {ex}")
+            return True # Prevent exit on error
+
+
 
     # ===============================
     # Theme helpers
@@ -454,7 +475,7 @@ class BibleApp:
         for heading, tiles in sections:
             content_cols.append(ft.Container(ft.Text(heading, size=14, weight=ft.FontWeight.BOLD, color=self._theme_text), padding=6))
             for group in list(chunks(tiles, cols)):
-                content_cols.append(ft.Row(group, alignment=ft.MainAxisAlignment.START, spacing=0))
+                content_cols.append(ft.Row(group, alignment=ft.MainAxisAlignment.CENTER, spacing=0))
 
         if not content_cols:
             self.content_area.content = ft.Text("No books found.", italic=True, color=self._theme_muted)
@@ -1037,23 +1058,8 @@ class BibleApp:
 def main(page: ft.Page):
     app = BibleApp(page)
 
-    # Handle Android / hardware back button and window events
-    def on_window_event(e):
-        try:
-            # e.data can be "back", "close", "popRoute" depending on platform/version
-            if getattr(e, "data", None) in ("back", "close", "popRoute"):
-                app.back()
-                # return True to signal we've handled the event where supported
-                return True
-        except Exception:
-            pass
-        return None
-
-    try:
-        page.on_window_event = on_window_event
-    except Exception:
-        # older/newer flet versions may not support on_window_event assignment; ignore safely
-        pass
+    # Removed conflicting on_window_event handler to allow page.on_back_button_pressed to work correctly
+    pass
 
 if __name__ == "__main__":
     ft.app(target=main)
